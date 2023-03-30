@@ -1,0 +1,115 @@
+{
+  "global": {
+    "cluster_type": "STANDARD",
+    "cluster_management_netmask": "255.255.255.0",
+    "cluster_management_gateway": "10.0.0.250",
+    "cluster_vsan_netmask": "255.255.255.0",
+    "cluster_vmotion_netmask": "255.255.255.0",
+    "ntp_servers": [
+      "10.0.0.250"
+    ],
+    "is_internal_dns": false,
+    "dns_servers": [
+      "10.0.0.250"
+    ],
+    "syslog_servers": [],
+    "ip_version": "IPV4",
+    "top_level_domain": "vrack.vsphere.local",
+    "ha_isolation_addresses": []
+  },
+  "version": "8.0.000",
+  "hosts": [
+    {
+      "hostname": "esxi-5",
+      "accounts": {
+        "root": {
+          "username": "root",
+          "password": ""
+        },
+        "management": {
+          "username": "vxadmin",
+          "password": ""
+        }
+      },
+      "network": [
+        {
+          "type": "MANAGEMENT",
+          "ip": "10.0.0.104"
+        }
+      ],
+      "host_psnt": "7FTZHK20000000"
+    }
+  ],
+  "vcenter": {
+    "customer_supplied_vc_name": "vcenter-2.vrack.vsphere.local",
+    "datacenter_name": "VxRail-DataCenter",
+    "cluster_name": "cluster-1",
+    "auto_accept_vc_cert": true,
+    "customer_supplied": true,
+    "accounts": {
+      "administrator": {
+        "username": "administrator@vsphere.local",
+        "password": ""
+      },
+      "management": {
+        "username": "vxadmin@vsphere.local",
+        "password": ""
+      }
+    }
+  },
+  "network": {
+    "nic_profile": "TWO_HIGH_SPEED",
+    "management_portgroup_binding_type": "EPHEMERAL",
+    "systemvm_portgroup_binding_type": "EPHEMERAL",
+    "vds": [
+      {
+        "portgroups": [
+          {
+            "type": "MANAGEMENT",
+            "vlan_id": 0,
+            "vmk_mtu": 1500,
+            "load_balance_policy": "LOADBALANCE_LOADBASED",
+            "failover_order": {
+              "active": [
+                "uplink1"
+              ],
+              "standby": [
+                "uplink3"
+              ]
+            }
+          }
+        ],
+        "mtu": 1500,
+        "nic_mappings": [
+          {
+            "uplinks": [
+              {
+                "name": "",
+                "physical_nic": ""
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "vxrail_manager": {
+    "name": "vxrm-2",
+    "ip": "10.0.0.78",
+    "accounts": {
+      "root": {
+        "username": "root",
+        "password": ""
+      },
+      "service": {
+        "username": "mystic",
+        "password": ""
+      },
+      "support": {
+        "password": "",
+        "username": "mystic"
+      }
+    }
+  },
+  "storage": {}
+}
