@@ -375,17 +375,45 @@ class VxRailJsonConverter:
             "VM_MANAGEMENT":self.__get_pg_name("VM_MANAGEMENT")
         }
 
-    # This will compare the vxrail first run json with sample json based on vcf version
+    # This will compare the vxrail first run json with sample json
     def compare_input_json_data_pass_through(self, vxrail_mapping, selected_domain_id):
         self.get_vxrm_version(selected_domain_id)
+        file_loc = None
+
+        # Searching for sample json from yaml file based on VxRail version
         for value in vxrail_mapping:
             if self.vxrm_version == value['version']:
                 file_loc = value['path']
-                with open(file_loc) as fp:
-                    json_spec = json.load(fp)
-                sample_json = json_spec  # old
-                input_json = self.vxrail_config  # new
-                self.prepare_vxrm_context_with_key_value_pair(sample_json, input_json, '')
+                break
+
+        if file_loc is None:
+            version_to_sample_json_dict = {}
+            for vxrail_map in vxrail_mapping:
+                version_to_sample_json_dict[int(vxrail_map['version'].replace(".", ""))] = vxrail_map['path']
+
+            # Getting VxRail versions from yaml and sort it
+            version_list = list(version_to_sample_json_dict.keys())
+            version_list.sort()
+
+            vxrm_version = self.vxrm_version
+            vxrail_version = int(vxrm_version.replace(".", ""))
+            min_version = 0
+            # We are looping on sorted versions list, finding closest min version
+            # e.g. For vxrail version >=7.0.400 and <7.0.450, it will pick 7.0.400 sample json.
+            for version in version_list:
+                max_version = version
+                if min_version:
+                    if vxrail_version in range(min_version, max_version):
+                        break
+                min_version = max_version
+            file_loc = version_to_sample_json_dict.get(min_version)
+
+        if file_loc:
+            with open(file_loc) as fp:
+                json_spec = json.load(fp)
+            sample_json = json_spec  # old
+            input_json = self.vxrail_config  # new
+            self.prepare_vxrm_context_with_key_value_pair(sample_json, input_json, '')
 
     def prepare_vxrm_context_with_key_value_pair(self, sample_json, input_json, key):
         # 4th argument existing_fr_simple_attributes passed as None as it's non-array.
