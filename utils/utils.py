@@ -14,6 +14,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 MASKED_KEYS = ['password', 'nsxManagerAdminPassword', 'rootPassword', 'ssoDomainPassword']
 PROCESSING = 102
+MTU_SUPPORTED_VXRAIL_VERSION = "7.0.241"
 
 __author__ = 'virtis'
 
@@ -233,6 +234,25 @@ class Utils:
             else:
                 break
         return inputstr
+
+    def valid_mtu(self, mtu):
+        res = True
+        if not str(mtu).isdigit():
+            self.printRed("MTU value must be an integer value")
+            res = False
+        if res:
+            if not (1280 <= int(mtu) <= 9000):
+                self.printRed("MTU value must be a number in between 1280-9000")
+                res = False
+        return res
+
+    def is_mtu_supported(self, vxrm_version):
+        is_mtu_supported = True
+        vxrail_version = int(vxrm_version.replace(".", ""))
+        vxrail_version_supported = int(MTU_SUPPORTED_VXRAIL_VERSION.replace(".", ""))
+        if vxrail_version < vxrail_version_supported:
+            is_mtu_supported = False
+        return is_mtu_supported
 
     def valid_option(self, inputstr, choices):
         choice = str(inputstr).strip().lower()

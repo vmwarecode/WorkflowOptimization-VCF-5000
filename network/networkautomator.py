@@ -6,6 +6,8 @@ from utils.utils import Utils
 
 __author__ = 'virtis'
 
+OVERLAY_DVS_MTU = 9000
+
 
 class NetworkAutomator:
     def __init__(self, args):
@@ -16,7 +18,7 @@ class NetworkAutomator:
     def prepare_dvs_info(self, physical_nics, nic_profile, input_mgmt_pg_name=None, input_vsan_pg_name=None,
                          input_vmotion_pg_name=None, pg_types_to_vmnics=None, pg_type_to_active_uplinks=None,
                          cluster_name=None, vsan_storage=None, input_vm_management_pg_name=None,
-                         dvpg_is_on=False):
+                         dvpg_is_on=False, pg_types_to_mtu=None, vds_mtu=None, is_step_by_step=False, is_mtu_supported=False):
         self.utils.printCyan("Select the DVS option to proceed:")
         self.utils.printBold("1) System DVS for Overlay")
         self.utils.printBold("2) Separate DVS for Overlay")
@@ -36,13 +38,13 @@ class NetworkAutomator:
         if dvs_selection == "1":
             if not is_multisystem_vds:
                 system_dvs_name, mgmt_pg_name, vsan_pg_name, vmotion_pg_name, system_vm_pg_name, \
-                host_discovery_pg_name, vm_management_pg_name \
+                host_discovery_pg_name, vm_management_pg_name, mtu \
                     = self.input_single_dvs_info(input_mgmt_pg_name, input_vsan_pg_name, input_vmotion_pg_name,
                                                  nic_profile, cluster_name, vsan_storage, input_vm_management_pg_name,
-                                                 dvpg_is_on)
+                                                 dvpg_is_on, vds_mtu, is_step_by_step, is_mtu_supported)
                 dvs_payload = self.prepare_dvs_payload(system_dvs_name, mgmt_pg_name, vsan_pg_name, vmotion_pg_name,
                                                        nic_profile, pg_type_to_active_uplinks, system_vm_pg_name,
-                                                       host_discovery_pg_name, vm_management_pg_name)
+                                                       host_discovery_pg_name, vm_management_pg_name, mtu)
             else:
                 system_dvs_to_pgs, pg_names_to_transport_types, vds_to_usedbynsxt_flag = \
                     self.input_multisystem_dvs_info(dvs_selection, pg_types_to_vmnics, input_mgmt_pg_name,
@@ -51,14 +53,14 @@ class NetworkAutomator:
                 dvs_payload = self.prepare_dvs_payload_for_advanced_profile_multisystem(system_dvs_to_pgs,
                                                                                         pg_names_to_transport_types,
                                                                                         vds_to_usedbynsxt_flag,
-                                                                                        pg_type_to_active_uplinks)
+                                                                                        pg_type_to_active_uplinks, pg_types_to_mtu)
         elif dvs_selection == "2":
             if not is_multisystem_vds:
                 system_dvs_name, mgmt_pg_name, vsan_pg_name, vmotion_pg_name, system_vm_pg_name, \
-                host_discovery_pg_name, vm_management_pg_name \
+                host_discovery_pg_name, vm_management_pg_name, mtu \
                     = self.input_single_dvs_info(input_mgmt_pg_name, input_vsan_pg_name, input_vmotion_pg_name,
                                                  nic_profile, cluster_name, vsan_storage, input_vm_management_pg_name,
-                                                 dvpg_is_on)
+                                                 dvpg_is_on, vds_mtu, is_step_by_step, is_mtu_supported)
             else:
                 system_dvs_to_pgs, pg_names_to_transport_types, vds_to_usedbynsxt_flag = \
                     self.input_multisystem_dvs_info(dvs_selection, pg_types_to_vmnics, input_mgmt_pg_name,
@@ -82,7 +84,7 @@ class NetworkAutomator:
                 vmnics = self.input_overlay_dvs_info(physical_nics, set(vds_portgroups_list))
                 dvs_payload = self.prepare_dvs_payload(system_dvs_name, mgmt_pg_name, vsan_pg_name, vmotion_pg_name,
                                                        nic_profile, pg_type_to_active_uplinks, system_vm_pg_name,
-                                                       host_discovery_pg_name, vm_management_pg_name, vmnics)
+                                                       host_discovery_pg_name, vm_management_pg_name, mtu, vmnics)
             else:
                 vds_portgroups_list = []
                 for key, value in system_dvs_to_pgs.items():
@@ -92,13 +94,13 @@ class NetworkAutomator:
                 dvs_payload = self.prepare_dvs_payload_for_advanced_profile_multisystem(system_dvs_to_pgs,
                                                                                         pg_names_to_transport_types,
                                                                                         vds_to_usedbynsxt_flag,
-                                                                                        pg_type_to_active_uplinks,
+                                                                                        pg_type_to_active_uplinks, pg_types_to_mtu,
                                                                                         vmnics)
         return dvs_payload, vmnics
 
     def prepare_dvs_payload(self, system_dvs_name, mgmt_pg_name, vsan_pg_name, vmotion_pg_name, nic_profile,
                             pg_type_to_active_uplinks, system_vm_pg_name, host_discovery_pg_name, vm_management_pg_name,
-                            vmnics=None):
+                            vds_mtu, vmnics=None):
         dvsSpecs = []
         if nic_profile == 'ADVANCED_VXRAIL_SUPPLIED_VDS':
             if pg_type_to_active_uplinks is not None:
@@ -129,24 +131,28 @@ class NetworkAutomator:
                 portgroups.append(self.to_portgroup_obj(vsan_pg_name, "VSAN"))
             if vm_management_pg_name is not None:
                 portgroups.append(self.to_portgroup_obj(vm_management_pg_name, "VM_MANAGEMENT"))
-        dvsSpecs.append(self.to_system_dvs_obj(system_dvs_name, portgroups, False if vmnics is not None else True))
+        dvsSpecs.append(self.to_system_dvs_obj(system_dvs_name, portgroups, vds_mtu, False if vmnics is not None else True))
 
         if vmnics:
             overlay_dvs_spec = {
                 "isUsedByNsxt": True,
-                "name": vmnics[0]['vdsName']
+                "name": vmnics[0]['vdsName'],
+                "mtu": OVERLAY_DVS_MTU
             }
             dvsSpecs.append(overlay_dvs_spec)
         return dvsSpecs
 
     def prepare_dvs_payload_for_advanced_profile_multisystem(self, system_dvs_to_pgs, pg_names_to_transport_types,
-                                                             vds_to_usedbynsxt_flag, pg_type_to_active_uplinks,
+                                                             vds_to_usedbynsxt_flag, pg_type_to_active_uplinks, pg_types_to_mtu=None,
                                                              vmnics=None):
         dvsSpecs = []
         for (key, value) in system_dvs_to_pgs.items():
             portgroups = []
+            vds_pg_types = []
+            mtu = None
             for pg in value:
                 type = pg_names_to_transport_types[pg]
+                vds_pg_types.append(type)
                 if type == 'VXRAILSYSTEMVM':
                     type = 'SYSTEMVM'
                 elif type == 'VXRAILDISCOVERY':
@@ -157,23 +163,35 @@ class NetworkAutomator:
                 else:
                     activeUplinks = pg_type_to_active_uplinks[pg_names_to_transport_types[pg]]
                     portgroups.append(self.to_portgroup_obj_advanced(pg, type, activeUplinks))
-
-            dvsSpecs.append(self.to_system_dvs_obj(key, portgroups,
+            # Eg: pg_types_to_mtu = {'["MANAGEMENT", "VXRAILDISCOVERY", "VXRAILSYSTEMVM"]': 3333, '["VSAN", "VMOTION"]': 3333}
+            if pg_types_to_mtu:
+                for pg_types in pg_types_to_mtu.keys():
+                    for pg_type in json.loads(pg_types):
+                        if pg_type in vds_pg_types:
+                            mtu = pg_types_to_mtu[pg_types]
+                            break
+                    if mtu:
+                        break
+            dvsSpecs.append(self.to_system_dvs_obj(key, portgroups, mtu,
                                                    False if vmnics is not None else vds_to_usedbynsxt_flag[key]))
         if vmnics:
             overlay_dvs_spec = {
                 "isUsedByNsxt": True,
-                "name": vmnics[0]['vdsName']
+                "name": vmnics[0]['vdsName'],
+                "mtu": OVERLAY_DVS_MTU
             }
             dvsSpecs.append(overlay_dvs_spec)
         return dvsSpecs
 
-    def to_system_dvs_obj(self, system_dvs_name, portgroups, isUsedByNsxt):
-        return {
+    def to_system_dvs_obj(self, system_dvs_name, portgroups, vds_mtu, isUsedByNsxt):
+        system_dvs_obj =  {
             "name": system_dvs_name,
             "isUsedByNsxt": isUsedByNsxt,
             "portGroupSpecs": portgroups
         }
+        if vds_mtu:
+            system_dvs_obj['mtu'] = vds_mtu
+        return system_dvs_obj
 
     def to_portgroup_obj(self, pg_name, pg_type):
         return {
@@ -190,11 +208,19 @@ class NetworkAutomator:
 
     def input_single_dvs_info(self, input_mgmt_pg_name=None, input_vsan_pg_name=None, input_vmotion_pg_name=None,
                               nic_profile=None, cluster_name=None, vsan_storage=None, input_vm_management_pg_name=None,
-                              dvpg_is_on=False):
+                              dvpg_is_on=False, vds_mtu=None, is_step_by_step=False, is_mtu_supported=False):
         while True:
             print()
             system_dvs_name = self.utils.valid_input("\033[1m Enter System DVS name: \033[0m",
                                                      None, self.utils.valid_resource_name)
+            mtu = None
+            if is_mtu_supported:
+                if is_step_by_step:
+                    mtu = int(self.utils.valid_input("\033[1m Enter MTU value(9000): \033[0m", 9000, self.utils.valid_mtu))
+                # If it is not step-by-step it will assign mtu only if it passed in the vxrail json
+                elif vds_mtu:
+                    mtu = vds_mtu
+
             if input_mgmt_pg_name is None:
                 print()
                 mgmt_pg_name = self.input_pg_name_and_check_prefix("MANAGEMENT", "Management Network")
@@ -239,7 +265,7 @@ class NetworkAutomator:
             else:
                 break
         return system_dvs_name, mgmt_pg_name, vsan_pg_name, vmotion_pg_name, system_vm_pg_name, \
-               host_discovery_pg_name, vm_management_pg_name
+               host_discovery_pg_name, vm_management_pg_name, mtu
 
     def input_pg_name_and_check_prefix(self, pg_type, prefix):
         while True:
@@ -322,6 +348,7 @@ class NetworkAutomator:
                 else:
                     break
 
+
         vds_to_usedbynsxt_flag = {}
         if dvs_selection == '1':
             print(*self.two_line_separator, sep='\n')
@@ -341,6 +368,8 @@ class NetworkAutomator:
     def input_overlay_dvs_info(self, physical_nics, vds_portgroups_set):
         while True:
             print()
+            self.utils.printYellow("** Overlay DVS uses default MTU value of 9000")
+
             overlay_dvs_name = self.utils.valid_input("\033[1m Enter Overlay DVS name: \033[0m", None,
                                                       self.utils.valid_resource_name)
 
@@ -351,11 +380,11 @@ class NetworkAutomator:
             else:
                 break
 
-        print(*self.two_line_separator, sep='\n')
         if not physical_nics:
             self.utils.printRed("Nodes does not have vmnics to choose for overlay. Please check on nodes.")
             exit(1)
 
+        print(*self.two_line_separator, sep='\n')
         self.utils.printCyan("Please choose the nics for overlay traffic:")
         self.utils.printBold("-----id-----speed-----")
         self.utils.printBold("----------------------")

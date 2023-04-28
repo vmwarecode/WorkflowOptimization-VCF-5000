@@ -79,6 +79,7 @@ class VxRailJsonConverterPatch:
         vxm_spec = self.converter.get_vxm_payload()
         hosts_spec = self.converter.get_host_spec()
         vds_pg_map = self.converter.get_pg_name_map()
+        is_mtu_supported = self.converter.get_is_mtu_supported()
 
         self.vxrail_auth_automator.check_reachability(vxm_spec["dnsName"])
 
@@ -138,11 +139,18 @@ class VxRailJsonConverterPatch:
             print(*self.two_line_separator, sep='\n')
             self.hosts_spec_password_input(hosts_spec)
             vm_spec_exists = False
-            pg_types_to_vmnics = pgtypes_to_vmnicuplink_mapping = pg_type_to_active_uplinks = None
+            # Set vds_mtu if it is Single System DVS
+            vds_mtu = None
+            pg_types_to_vmnics = pgtypes_to_vmnicuplink_mapping = pg_type_to_active_uplinks = pg_types_to_mtu = None
             if selected_nic_profile == 'ADVANCED_VXRAIL_SUPPLIED_VDS':
-                pg_types_to_vmnics = self.converter.get_vmnics_mapped_to_system_dvs(dvpg_is_on)
+                pg_types_to_vmnics, pg_types_to_mtu = self.converter.get_vmnics_mapped_to_system_dvs(dvpg_is_on, is_mtu_supported)
                 pg_type_to_active_uplinks = self.converter.get_portgroup_to_active_uplinks(dvpg_is_on)
                 pgtypes_to_vmnicuplink_mapping = self.converter.get_vmnic_to_uplink_mapping_for_vdss(dvpg_is_on)
+                if pg_types_to_mtu and len(pg_types_to_mtu) == 1:
+                    vds_mtu = self.converter.get_single_system_dvs_mtu()
+            else:
+                if is_mtu_supported:
+                    vds_mtu = self.converter.get_single_system_dvs_mtu()
 
             vsan_storage = False
             for nw in vxm_spec['networks']:
@@ -155,7 +163,7 @@ class VxRailJsonConverterPatch:
             self.vds_payload, vmnics = self.network_automator.prepare_dvs_info(
                 self.host_automator.get_physical_nics(discovered_hosts), selected_nic_profile,
                 vds_pg_map["MANAGEMENT"], vds_pg_map["VSAN"], vds_pg_map["VMOTION"], pg_types_to_vmnics,
-                pg_type_to_active_uplinks, self.get_cluster_name(), vsan_storage, vm_management_pg, dvpg_is_on)
+                pg_type_to_active_uplinks, self.get_cluster_name(), vsan_storage, vm_management_pg, dvpg_is_on, pg_types_to_mtu, vds_mtu, is_mtu_supported=is_mtu_supported)
 
             if vmnics:
                 for host_spec in hosts_spec:

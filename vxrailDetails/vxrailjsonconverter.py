@@ -28,6 +28,7 @@ class VxRailJsonConverter:
         self.error_message = []
         self.vxrail_config = None
         self.vxrm_version = None
+        self.is_mtu_supported = False
         self.hostname = args[0]
 
     def __ip_comparator(self, ip1, ip2):
@@ -158,6 +159,15 @@ class VxRailJsonConverter:
                 jsonobj = jsonobj[attr]
         return jsonobj
 
+    def __get_pgs_mtu_value(self):
+        pg_to_mtu = {}
+        vdssets = self.__get_attr_value(self.vxrail_config, ["network", "vds"])
+        for vdsset in vdssets:
+            for pg in vdsset["portgroups"]:
+                if "vmk_mtu" in pg:
+                    pg_to_mtu[pg["type"]] = pg["vmk_mtu"]
+        return pg_to_mtu
+
     # vlan could be 0 <= vlan <= 4096. Returning -1 if does not provided in vxrail json spec
     def __get_vlan(self, net_type):
         vdssets = self.__get_attr_value(self.vxrail_config, ["network", "vds"])
@@ -167,7 +177,15 @@ class VxRailJsonConverter:
                     return pg["vlan_id"]
         return -1
 
-    def get_vmnics_mapped_to_system_dvs(self, dvpg_is_on):
+    def get_single_system_dvs_mtu(self):
+        vdssets = self.__get_attr_value(self.vxrail_config, ["network", "vds"])
+        mtu = None
+        for vdsset in vdssets:
+            if "mtu" in vdsset:
+                mtu = vdsset["mtu"]
+        return mtu
+
+    def get_vmnics_mapped_to_system_dvs(self, dvpg_is_on, is_mtu_supported):
         vdssets = self.__get_attr_value(self.vxrail_config, ["network", "vds"])
 
         if len(vdssets) > 2:
@@ -176,6 +194,8 @@ class VxRailJsonConverter:
             exit(1)
 
         pg_types_to_vmnics = {}
+        pg_types_to_mtu = {}
+
         pg_types = ["MANAGEMENT", "VSAN", "VMOTION", "VXRAILSYSTEMVM", "VXRAILDISCOVERY"]
         for vdsset in vdssets:
             pg_types_per_vds = []
@@ -197,7 +217,10 @@ class VxRailJsonConverter:
             if len(pg_types_per_vds) > 0:
                 key = json.dumps(pg_types_per_vds)
                 pg_types_to_vmnics[key] = self.__get_vmnics(vdsset)
-        return pg_types_to_vmnics
+                if is_mtu_supported:
+                    if "mtu" in vdsset:
+                        pg_types_to_mtu[key] = vdsset["mtu"]
+        return pg_types_to_vmnics, pg_types_to_mtu
 
     def __get_vmnics(self, vdsset):
         vmnics = []
@@ -376,8 +399,7 @@ class VxRailJsonConverter:
         }
 
     # This will compare the vxrail first run json with sample json
-    def compare_input_json_data_pass_through(self, vxrail_mapping, selected_domain_id):
-        self.get_vxrm_version(selected_domain_id)
+    def compare_input_json_data_pass_through(self, vxrail_mapping):
         file_loc = None
 
         # Searching for sample json from yaml file based on VxRail version
@@ -523,14 +545,7 @@ class VxRailJsonConverter:
                 "password": self.__get_attr_value(self.vxrail_config,
                                                   ["vxrail_manager", "accounts", "service", "password"])
             },
-            "networks": [
-                {
-                    "type": "VMOTION",
-                    "vlanId": self.__get_vlan("VMOTION"),
-                    "ipPools": self.__get_ip_pools("VMOTION"),
-                    "mask": self.__get_attr_value(self.vxrail_config, ["global", "cluster_vmotion_netmask"])
-                }
-            ],
+            "networks": [],
             "dnsName": "{}.{}".format(self.__get_attr_value(self.vxrail_config, ["vxrail_manager", "name"]),
                                       self.__get_attr_value(self.vxrail_config, ["global", "top_level_domain"])),
             "ipAddress": self.__get_attr_value(self.vxrail_config, ["vxrail_manager", "ip"]),
@@ -538,6 +553,22 @@ class VxRailJsonConverter:
             "sslThumbprint": "",  # leave it as empty
             "sshThumbprint": ""  # leave it as empty
         }
+
+        vmotion_network = {
+            "type": "VMOTION",
+            "vlanId": self.__get_vlan("VMOTION"),
+            "ipPools": self.__get_ip_pools("VMOTION"),
+            "mask": self.__get_attr_value(self.vxrail_config, ["global", "cluster_vmotion_netmask"])
+        }
+        self.get_vxrm_version(selected_domain_id)
+        self.is_mtu_supported = self.utils.is_mtu_supported(self.vxrm_version)
+        pg_to_mtu = None
+        if self.is_mtu_supported:
+            pg_to_mtu = self.__get_pgs_mtu_value()
+            if pg_to_mtu and ("VMOTION" in pg_to_mtu):
+                vmotion_network["mtu"] = pg_to_mtu["VMOTION"]
+
+        self.vxm_payload["networks"].append(vmotion_network)
 
         properties_file = "data_passthrough_properties.yaml"
         if os.path.exists(properties_file):
@@ -547,7 +578,7 @@ class VxRailJsonConverter:
                     if properties is not None:
                         if "data_passthrough" in properties:
                             if properties["data_passthrough"]:
-                                self.compare_input_json_data_pass_through(properties['vxrail_versions'], selected_domain_id)
+                                self.compare_input_json_data_pass_through(properties['vxrail_versions'])
                 except yaml.YAMLError as e:
                     self.utils.printRed("Error parsing yaml file " + properties_file)
                     exit(1)
@@ -567,6 +598,9 @@ class VxRailJsonConverter:
                 "ipPools": self.__get_ip_pools("VSAN"),
                 "mask": self.__get_attr_value(self.vxrail_config, ["global", "cluster_vsan_netmask"])
             }
+            if self.is_mtu_supported:
+                if pg_to_mtu and ("VSAN" in pg_to_mtu):
+                    vsan_network["mtu"] = pg_to_mtu["VSAN"]
             self.vxm_payload["networks"].append(vsan_network)
         for nwk in self.vxm_payload["networks"]:
             ipfirst3 = self.__get_ipfirst3_from_pools(nwk["ipPools"])
@@ -579,6 +613,9 @@ class VxRailJsonConverter:
             "mask": self.__get_attr_value(self.vxrail_config, ["global", "cluster_management_netmask"]),
             "gateway": self.__get_attr_value(self.vxrail_config, ["global", "cluster_management_gateway"])
         }
+        if self.is_mtu_supported:
+            if pg_to_mtu and ("MANAGEMENT" in pg_to_mtu):
+                mgmt_network["mtu"] = pg_to_mtu["MANAGEMENT"]
         vm_netmask = self.__get_attr_value(self.vxrail_config, ["global", "cluster_systemvm_netmask"])
         vm_gateway = self.__get_attr_value(self.vxrail_config, ["global", "cluster_systemvm_gateway"])
         if dvpg_is_on and vm_management_vlan != -1:
@@ -653,6 +690,9 @@ class VxRailJsonConverter:
 
     def get_host_spec(self):
         return self.host_spec
+
+    def get_is_mtu_supported(self):
+        return self.is_mtu_supported
 
     # this is for dump test
     def to_string(self):

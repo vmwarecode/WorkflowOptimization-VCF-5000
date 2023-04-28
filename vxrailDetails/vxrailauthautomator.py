@@ -12,6 +12,7 @@ __author__ = 'virtis'
 
 VXRAIL_PRIMARY_HOST_MAJOR_VERSION_8 = 8
 
+
 class VxRailAuthAutomator:
     def __init__(self, args):
         self.utils = Utils(args)
@@ -44,25 +45,25 @@ class VxRailAuthAutomator:
             "password": pwd
         }
 
-    def prepare_network_info_and_payload(self, hosts_spec_len, mgmt_network_details, vsan_storage, dvpg_is_on=False):
+    def prepare_network_info_and_payload(self, hosts_spec_len, mgmt_network_details, vsan_storage, dvpg_is_on=False, is_mtu_supported=False):
         vsan_network_obj = None
         if vsan_storage:
             self.utils.printYellow("** For e.g. vSAN Network VLAN ID: 1407, CIDR: 172.18.60.0/24, \n    "
-                                   "IP Range for hosts vSAN IP assignment: 172.18.60.55-172.18.60.60")
+                                   "IP Range for hosts vSAN IP assignment: 172.18.60.55-172.18.60.60, Range for MTU: 1280-9000")
             self.utils.printCyan("Please enter vSAN Network details: ")
-            vsan_vlan_id, vsan_cidr, vsan_subnet, vsan_gateway, vsan_ip_range = self.input_network_info(True, True, hosts_spec_len)
+            vsan_vlan_id, vsan_cidr, vsan_subnet, vsan_gateway, vsan_ip_range, vsan_mtu = self.input_network_info(True, True, hosts_spec_len, is_mtu_supported)
             print(*self.two_line_separator, sep='\n')
-            vsan_network_obj = self.to_network_obj('VSAN', vsan_vlan_id, vsan_cidr, vsan_subnet, vsan_gateway, vsan_ip_range)
+            vsan_network_obj = self.to_network_obj('VSAN', vsan_vlan_id, vsan_cidr, vsan_subnet, vsan_gateway, vsan_ip_range, vsan_mtu)
 
         self.utils.printYellow("** For e.g. vMotion Network VLAN ID: 1406, CIDR: 172.18.59.0/24, \n    "
-                               "IP Range for hosts vMotion IP assignment: 172.18.59.55-172.18.59.60")
+                               "IP Range for hosts vMotion IP assignment: 172.18.59.55-172.18.59.60, Range for MTU: 1280-9000")
         self.utils.printCyan("Please enter vMotion Network details: ")
-        vmotion_vlan_id, vmotion_cidr, vmotion_subnet, vmotion_gateway, vmotion_ip_range = \
-            self.input_network_info(True, True, hosts_spec_len)
+        vmotion_vlan_id, vmotion_cidr, vmotion_subnet, vmotion_gateway, vmotion_ip_range, vmotion_mtu = \
+            self.input_network_info(True, True, hosts_spec_len, is_mtu_supported)
         print(*self.two_line_separator, sep='\n')
 
         network_payload = [self.to_network_obj('VMOTION', vmotion_vlan_id, vmotion_cidr, vmotion_subnet, vmotion_gateway,
-                           vmotion_ip_range)]
+                           vmotion_ip_range, vmotion_mtu)]
         if vsan_network_obj is not None:
             network_payload.append(vsan_network_obj)
 
@@ -74,38 +75,43 @@ class VxRailAuthAutomator:
                                         + str(mgmt_network_details['vlanId'])
                                         + ", CIDR: " + mgmt_network_details['subnet'])
             select_option = input("\033[1m Do you want to provide Management Network details?('yes' or 'no'): \033[0m")
-            print(*self.two_line_separator, sep='\n')
             if select_option.lower() == 'yes' or select_option.lower() == 'y':
-                network_payload.append(self.input_mgmt_network_info(hosts_spec_len))
+                print(*self.two_line_separator, sep='\n')
+                network_payload.append(self.input_mgmt_network_info(hosts_spec_len, is_mtu_supported))
 
             else:
+                mgmt_mtu = None
+                if is_mtu_supported:
+                    mgmt_mtu = int(self.utils.valid_input("\033[1m Enter MTU value(1500): \033[0m", 1500, self.utils.valid_mtu))
+                print(*self.two_line_separator, sep='\n')
                 mgmt_network_obj = self.to_network_obj('MANAGEMENT',
                                                         mgmt_network_details['vlanId'],
                                                         mgmt_network_details['subnet'],
                                                         mgmt_network_details['mask'],
                                                         mgmt_network_details['gateway'],
-                                                        None)
+                                                        None,
+                                                        mgmt_mtu)
                 network_payload.append(mgmt_network_obj)
             if(dvpg_is_on):
                 select_option = input("\033[1m Do you want to provide VM_Management Network details?('yes' or 'no') - If no, we will use management network for VM: \033[0m")
                 print(*self.two_line_separator, sep='\n')
                 if select_option.lower() == 'yes' or select_option.lower() == 'y':
                     self.utils.printCyan("Please enter VM_Management Network details: ")
-                    vm_management_vlan_id, vm_management_cidr, vm_management_subnet, vm_management_gateway,vm_management_ip_range = \
+                    vm_management_vlan_id, vm_management_cidr, vm_management_subnet, vm_management_gateway,vm_management_ip_range, vm_management_mtu = \
                         self.input_network_info(True, False, hosts_spec_len)
                     print(*self.two_line_separator, sep='\n')
                     network_payload.append(
-                        self.to_network_obj('VM_MANAGEMENT',  vm_management_vlan_id, vm_management_cidr, vm_management_subnet, vm_management_gateway,None))
+                        self.to_network_obj('VM_MANAGEMENT',  vm_management_vlan_id, vm_management_cidr, vm_management_subnet, vm_management_gateway, None, vm_management_mtu))
         else:
-            network_payload.append(self.input_mgmt_network_info(hosts_spec_len))
+            network_payload.append(self.input_mgmt_network_info(hosts_spec_len, is_mtu_supported))
         return network_payload
 
-    def input_mgmt_network_info(self, hosts_spec_len):
+    def input_mgmt_network_info(self, hosts_spec_len, is_mtu_supported):
         self.utils.printCyan("Please enter Management Network details: ")
-        mgmt_vlan_id, mgmt_cidr, mgmt_subnet, mgmt_gateway, mgmt_ip_range = \
-            self.input_network_info(True, False, hosts_spec_len)
+        mgmt_vlan_id, mgmt_cidr, mgmt_subnet, mgmt_gateway, mgmt_ip_range, mgmt_mtu = \
+            self.input_network_info(True, False, hosts_spec_len, is_mtu_supported)
         print(*self.two_line_separator, sep='\n')
-        return self.to_network_obj('MANAGEMENT', mgmt_vlan_id, mgmt_cidr, mgmt_subnet, mgmt_gateway, mgmt_ip_range)
+        return self.to_network_obj('MANAGEMENT', mgmt_vlan_id, mgmt_cidr, mgmt_subnet, mgmt_gateway, mgmt_ip_range, mgmt_mtu)
 
     def count_ip_pool_ranges(self, ip_range, cidr, hosts_spec_len):
         ips = ip_range.split('-')
@@ -123,8 +129,8 @@ class VxRailAuthAutomator:
             return False
         return True
 
-    def input_network_info(self, cidr_req, ip_range_req, hosts_spec_len):
-        cidr = ip_range = None
+    def input_network_info(self, cidr_req, ip_range_req, hosts_spec_len, is_mtu_supported=False):
+        cidr = ip_range =  None
         vlan_id = int(self.utils.valid_input("\033[1m Enter VLAN Id: \033[0m", None, self.utils.valid_vlan))
         if cidr_req:
             cidr = self.utils.valid_input("\033[1m Enter CIDR: \033[0m", None, self.utils.valid_cidr)
@@ -136,15 +142,20 @@ class VxRailAuthAutomator:
                 ip_range = self.utils.valid_input("\033[1m Enter IP Range: \033[0m", None, self.utils.valid_ip_ranges)
                 if self.count_ip_pool_ranges(ip_range, cidr, hosts_spec_len):
                     break
-        return vlan_id, cidr, subnet, gateway, ip_range
+        mtu = None
+        if  is_mtu_supported:
+            mtu = int(self.utils.valid_input("\033[1m Enter MTU value(1500): \033[0m", 1500, self.utils.valid_mtu))
+        return vlan_id, cidr, subnet, gateway, ip_range, mtu
 
-    def to_network_obj(self, type, vlan_id, cidr, subnet, gateway, ip_range):
+    def to_network_obj(self, type, vlan_id, cidr, subnet, gateway, ip_range, mtu):
         network_obj = {
             "type": type,
             "vlanId": vlan_id,
             "mask": subnet,
             "gateway": gateway
         }
+        if mtu is not None:
+            network_obj['mtu'] = mtu
         if cidr is not None:
             network_obj['subnet'] = cidr
         if ip_range is not None:
@@ -192,10 +203,9 @@ class VxRailAuthAutomator:
         # :5C:1C:91:27:AA:55:28
         return output.split("=")[1].strip()
 
-    def select_nic_profile(self, domain_id):
-        self.converter.get_vxrm_version(domain_id)
+    def select_nic_profile(self, vxrm_version):
         nic_profile_list = ["TWO_HIGH_SPEED", "FOUR_HIGH_SPEED"]
-        if int(self.converter.vxrm_version[0]) < VXRAIL_PRIMARY_HOST_MAJOR_VERSION_8:
+        if int(vxrm_version[0]) < VXRAIL_PRIMARY_HOST_MAJOR_VERSION_8:
             nic_profile_list.append("FOUR_EXTREME_SPEED")
         self.utils.printYellow("** ADVANCED_VXRAIL_SUPPLIED_VDS nic profile is supported only via VxRail JSON input")
         self.utils.printCyan("Please select nic profile:")

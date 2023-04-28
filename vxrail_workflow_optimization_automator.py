@@ -256,11 +256,15 @@ class VxRailWorkflowOptimizationAutomator:
                     default_cluster_id = cluster['id']
                     get_vdses_url = 'https://' + self.hostname + '/v1/clusters/' + cluster['id'] + '/vdses'
                     vds_details = self.utils.get_request(get_vdses_url)
+                    mgmt_vlan_id = None
                     for vds in vds_details:
                         for port_group in vds['portGroups']:
                             if port_group['transportType'] == 'MANAGEMENT':
-                                mgmt_network_obj['vlanId'] = port_group['vlanId']
-                        break
+                                mgmt_vlan_id = port_group['vlanId']
+                                break
+                        if mgmt_vlan_id:
+                            break
+                    mgmt_network_obj['vlanId'] = mgmt_vlan_id
             if default_cluster_id is None:
                 self.utils.printRed("Default cluster not found in domain {}. Please check isDefault field in "
                                     "inventory for clusters exists in selected domain".format(domain_id))
@@ -527,12 +531,14 @@ class VxRailWorkflowOptimizationAutomator:
             discovered_hosts = self.hosts.discover_hosts(vxrm_fqdn, vxrm_ssl_thumbprint)
             hosts_spec = self.hosts.input_hosts_details(discovered_hosts, vsan_storage)
 
+            self.converter.get_vxrm_version(domain_id)
+            is_mtu_supported = self.utils.is_mtu_supported(self.converter.vxrm_version)
             vxrm_network_payload = self.vxrailmanager.prepare_network_info_and_payload(len(hosts_spec),
                                                                                        self.get_management_network_details(
                                                                                            domain_id),
-                                                                                       vsan_storage,dvpg_is_on=dvpg_is_on)
+                                                                                       vsan_storage,dvpg_is_on=dvpg_is_on, is_mtu_supported=is_mtu_supported)
 
-            selected_nic_profile = self.vxrailmanager.select_nic_profile(domain_id)
+            selected_nic_profile = self.vxrailmanager.select_nic_profile(self.converter.vxrm_version)
 
             # If VM_MANAGEMENT is not in vxm network payload at this point, it means user chose not
             # to create VM_MANAGEMENT. In other words, we can treat dvpg_is_on as false.
@@ -545,9 +551,10 @@ class VxRailWorkflowOptimizationAutomator:
                 dvpg_is_on = vm_management_exists
 
             print(*self.two_line_separator, sep='\n')
+            # mtu value will be asked only if is_step_by_step is True, so we can take vxrail json as source of input
             dvs_payload, vmnics = self.network.prepare_dvs_info(
                 self.hosts.get_physical_nics(discovered_hosts), selected_nic_profile, vsan_storage=vsan_storage,
-                dvpg_is_on=dvpg_is_on)
+                dvpg_is_on=dvpg_is_on, is_step_by_step=True, is_mtu_supported=is_mtu_supported)
             if vmnics:
                 for host_spec in hosts_spec:
                     host_spec['hostNetworkSpec'] = {'vmNics': vmnics}
